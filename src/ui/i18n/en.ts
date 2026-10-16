@@ -1,0 +1,203 @@
+// Every user-facing string of the plugin's UI (filed by the SPA under plugins.unifyamerica.super-assembly)
+export default {
+  nav: {
+    superAssembly: 'Super Assembly',
+    myAssemblies: 'My assemblies',
+    manage: 'Manage assemblies',
+  },
+  states: {
+    draft: 'Draft',
+    scheduled: 'Scheduled',
+    running: 'Running',
+    finished: 'Finished',
+    canceled: 'Canceled',
+  },
+  common: {
+    noOrganization: 'Choose an organization to see its assemblies.',
+    actions: 'Actions',
+    seconds: 'seconds',
+    empty: 'Nothing yet.',
+  },
+  buttons: {
+    continue: 'Continue',
+    view: 'View',
+    edit: 'Edit',
+    clone: 'Clone',
+    cancel: 'Cancel',
+    save: 'Save',
+    delete: 'Delete',
+    preview: 'Preview',
+    editHtml: 'Edit HTML',
+  },
+  fields: {
+    title: 'Title',
+    state: 'State',
+    status: 'Status',
+    startsAt: 'Starts at',
+    questions: 'Questions',
+    timeZone: 'Time zone',
+    roundDuration: 'Round duration',
+    prompt: 'Question (HTML)',
+    min: 'Minimum answer',
+    max: 'Maximum answer',
+    landingHtml: 'Invitation page',
+    readyHtml: 'Waiting room',
+    finishedHtml: 'Closing page',
+    code: 'Code',
+    traits: 'Traits',
+  },
+  timeZones: {
+    America_New_York: 'Eastern (New York)',
+    America_Chicago: 'Central (Chicago)',
+    America_Denver: 'Mountain (Denver)',
+    America_Phoenix: 'Mountain, no DST (Phoenix)',
+    America_Los_Angeles: 'Pacific (Los Angeles)',
+    America_Anchorage: 'Alaska (Anchorage)',
+    Pacific_Honolulu: 'Hawaii (Honolulu)',
+    UTC: 'UTC',
+  },
+  chart: {
+    label: "Each round's range of answers and average",
+    round: 'Round {round}',
+    average: 'Average',
+    range: 'Range of answers',
+    mine: 'Your answers',
+  },
+  progress: {
+    invitations: 'Invitations',
+    joined: 'Joined',
+    ready: 'Ready',
+    cohort: 'Taking part',
+    stopped: 'Stopped',
+    answeredThisRound: 'Answered this round',
+    round: 'Question {question}, round {round}: {time} left',
+  },
+  invitations: {
+    generate: 'Generate invitations',
+    generateButton: 'Generate',
+    generateHelp:
+      'Each invitation is a single-use link for one member of this organization.',
+    import: 'Invitations with traits',
+    importHelp:
+      "One JSON object per line (or a JSON array). Each becomes an invitation, and its traits are exported with that member's answers.",
+    importButton: 'Create invitations',
+    badTraits: 'Write one JSON object per line, like {"smoker": "no"}.',
+    created: '{count} invitations created',
+    total: '{count} invitations',
+    copyUnused: 'Copy unused links',
+    copyLink: 'Copy link',
+    copied: 'Copied to the clipboard',
+    copyFailed: "Couldn't copy to the clipboard",
+    empty:
+      'No invitations yet: an assembly needs at least one to be scheduled.',
+    used: 'Used',
+    unused: 'Unused',
+  },
+  pages: {
+    home: {
+      title: 'Super Assembly',
+      subtitle: 'Your assemblies in {organization}',
+      joinLabel: 'Have an invitation?',
+      joinPlaceholder: 'Paste your invitation link or code',
+      joinHelp:
+        'Invitation links are single use: once you join, the link is yours.',
+      mine: 'My assemblies',
+      empty: "You haven't joined an assembly yet.",
+      open: 'Open',
+    },
+    join: {
+      title: 'Join an assembly',
+      invalid:
+        "This invitation link isn't valid. It may have been used by someone else, or the assembly isn't open yet.",
+      startsAt: 'Starts {time}',
+      howItWorks:
+        "You'll answer {questions} question(s), each over {rounds} short rounds. Between rounds you'll see how a few other participants answered.",
+      closed: {
+        finished: 'This assembly has finished.',
+        canceled: 'This assembly was canceled.',
+      },
+      join: 'Join',
+      continue: 'Continue',
+    },
+    session: {
+      title: 'Assembly',
+      notFound: "We couldn't find this assembly.",
+      progress:
+        'Question {question} of {questions} · Round {round} of {rounds}',
+      startsIn: 'Starts in',
+      ready:
+        "You're in. Confirm you're still here within {time} to keep your place.",
+      notReady:
+        "Confirm you're here to take part: only people who confirm in the last minute before the start join.",
+      imHere: "I'm here",
+      readyHelp:
+        'Keep this page open: it moves on by itself when the assembly starts.',
+      starting: 'Starting…',
+      yourLast: 'Your last answer',
+      neighbors: "Your network's average",
+      answerLabel: 'Your answer ({min} to {max})',
+      submit: 'Submit',
+      answered:
+        'Your answer ({value}) is in. The next round starts when this one ends.',
+      results: 'Question {question}: how the group answered',
+      computing: 'Counting the answers…',
+      nextQuestionIn: 'Next question in',
+      closed: {
+        late: 'This assembly had already started when you joined. Assemblies happen all at once, so each invitation is for one session.',
+        missed:
+          "You weren't confirmed as here when the assembly started, so your place was released.",
+        stopped:
+          "You didn't answer the first round, so you're no longer taking part in this assembly.",
+        canceled: 'This assembly was canceled.',
+      },
+    },
+    assemblies: {
+      title: 'Assemblies',
+      subtitle: "{organization}'s Super Assemblies",
+      new: 'New assembly',
+      empty: 'No assemblies yet.',
+    },
+    form: {
+      newTitle: 'New assembly',
+      editTitle: 'Edit assembly',
+      cloneTitle: 'Clone assembly',
+      subtitle:
+        'Drafts can be incomplete. Scheduling checks everything is set.',
+      copyOf: '{title} (copy)',
+      scheduledNote:
+        "This assembly is scheduled: it has to stay complete, and it can't be edited once members join.",
+      startsAtHelp:
+        "In the assembly's time zone. Members need to confirm they're here in the minute before.",
+      roundDurationHelp:
+        'Each question has 3 rounds of this length, and a 30-second report between questions.',
+      questions: 'Questions',
+      question: 'Question {n}',
+      removeQuestion: 'Remove question {n}',
+      addQuestion: 'Add a question',
+      minBelowMax: 'The minimum must be below the maximum.',
+      pages: 'Pages',
+      landingHelp: 'Shown with the invitation, before joining.',
+      readyHelp: 'Shown while members wait for the start.',
+      finishedHelp: 'Shown at the end, with the last results.',
+      saved: 'Assembly saved',
+      discard: 'Discard your changes?',
+    },
+    assembly: {
+      title: 'Assembly',
+      overview: 'Overview',
+      invitations: 'Invitations',
+      ends: 'Ends',
+      schedule: 'Schedule',
+      unschedule: 'Back to draft',
+      cancel: 'Cancel assembly',
+      export: 'Export CSV',
+      scheduled: 'Assembly scheduled',
+      unscheduled: 'Assembly moved back to draft',
+      canceled: 'Assembly canceled',
+      deleted: 'Assembly deleted',
+      confirmCancel:
+        "Cancel this assembly? Members who joined will see that it's canceled.",
+      confirmDelete: 'Delete this draft and its invitations?',
+    },
+  },
+};
