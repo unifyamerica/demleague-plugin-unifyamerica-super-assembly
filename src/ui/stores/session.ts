@@ -8,10 +8,13 @@ import { SessionState, type Session } from '../types';
 const RETRY_MS = 3000;
 const SPREAD_MS = 2500;
 const SETTLE_MS = 2500;
+// After answering, the round can end early (once everyone has answered): check this often while waiting
+const ANSWERED_POLL_MS = 4000;
 
 /**
- * The current user's participation in one assembly. The assembly moves on the clock, so instead of polling it
- * asks again when the current phase ends (with a little spread), and right after the user acts.
+ * The current user's participation in one assembly. Phases end at a known time, so instead of polling it asks again
+ * when the current phase ends (with a little spread) and right after the user acts. Only while they've answered
+ * and wait for the others does it check every few seconds, since the round ends early once everyone has answered.
  */
 export const useSessionStore = assemblyUi.defineStore('session', () => {
   const api = useApi();
@@ -53,10 +56,14 @@ export const useSessionStore = assemblyUi.defineStore('session', () => {
         else if (endsAt)
           delay = endsAt - serverNow.value + Math.random() * SPREAD_MS;
         break;
+      case SessionState.ANSWERED:
+        delay = ANSWERED_POLL_MS + Math.random() * SPREAD_MS;
+        if (endsAt)
+          delay = Math.min(delay, endsAt - serverNow.value + SETTLE_MS);
+        break;
       case SessionState.WAITING:
       case SessionState.NOT_READY:
       case SessionState.ANSWERING:
-      case SessionState.ANSWERED:
         if (endsAt)
           delay =
             endsAt - serverNow.value + SETTLE_MS + Math.random() * SPREAD_MS;

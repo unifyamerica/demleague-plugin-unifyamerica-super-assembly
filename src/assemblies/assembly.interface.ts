@@ -42,11 +42,39 @@ export const MAX_TITLE_LENGTH = 200;
 export const MAX_INVITATIONS_PER_REQUEST = 500;
 export const MAX_TRAITS = 20;
 export const MAX_TRAIT_LENGTH = 200;
-// Joining and confirming close at the start; the launch waits this long after it, so no ready confirmation
+// Joining and confirming close at the start; the launch job runs this long after it, so no ready confirmation
 // can still be landing while the cohort is chosen
 export const LAUNCH_GRACE_SEC = 2;
-// …and results are computed this long after a question's last round, for the same reason with answers
+// …and a question's results are computed this long after its last round closes, for the same reason with answers
 export const RESULTS_SETTLE_SEC = 2;
+// A job this overdue (the dispatcher was down, say) is scheduled again when someone looks at the assembly
+export const OVERDUE_SEC = 15;
+
+export const JOBS = {
+  LAUNCH: 'launch',
+  ADVANCE: 'advance',
+  RESULTS: 'results',
+} as const;
+
+export const PhaseKinds = {
+  ROUND: 'round',
+  REPORT: 'report',
+  FINISHED: 'finished',
+} as const;
+export type PhaseKind = (typeof PhaseKinds)[keyof typeof PhaseKinds];
+
+/** Where a launched assembly is. Moved on by the `advance` job (when the time is up, or everyone answered). */
+export interface AssemblyPhase {
+  // `q0-r1`, `q0-report`, `finished`: what the advance job for this phase is keyed on
+  key: string;
+  kind: PhaseKind;
+  // 0-based question, 1-based round (0 outside rounds)
+  question: number;
+  round: number;
+  startedAt: Date;
+  // null once finished
+  endsAt: Date | null;
+}
 
 export const TIME_ZONES = [
   'America/New_York',
@@ -96,8 +124,14 @@ export interface Assembly {
   readyHtml: string;
   finishedHtml: string;
   status: AssemblyStatus;
-  /** Set once the cohort and its neighbors are chosen (to `startsAt`, so every launch writes the same) */
+  /** Set once the cohort and its neighbors are chosen */
   launchedAt: Date | null;
+  /** The current phase, from the launch on */
+  phase: AssemblyPhase | null;
+  /** How many took part from the start, and how many still do (those who answered the first round) */
+  cohortSize: number;
+  activeCount: number;
+  finishedAt: Date | null;
   /** By question, filled in after each question's last round */
   results: QuestionResult[];
 }

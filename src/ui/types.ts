@@ -81,6 +81,17 @@ export interface Assembly {
   status: AssemblyStatus;
   state: AssemblyState;
   launchedAt: string | null;
+  phase: {
+    key: string;
+    kind: 'round' | 'report' | 'finished';
+    question: number;
+    round: number;
+    startedAt: string;
+    endsAt: string | null;
+  } | null;
+  cohortSize: number;
+  activeCount: number;
+  finishedAt: string | null;
   results: QuestionResult[];
   createdAt: string;
   updatedAt: string;

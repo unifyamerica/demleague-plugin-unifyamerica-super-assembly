@@ -7,7 +7,7 @@ import {
 export const SUPER_ASSEMBLY_MANIFEST: PluginManifest = {
   sdkApiVersion: SDK_API_VERSION,
   namespace: 'unifyamerica.super-assembly',
-  version: '0.1.0',
+  version: '0.2.0',
   displayName: 'Super Assembly',
   description:
     "Timed assemblies where members estimate answers to questions over three rounds, seeing their network neighbors' previous answers between rounds",
@@ -101,6 +101,26 @@ export const SUPER_ASSEMBLY_MANIFEST: PluginManifest = {
     },
   ],
   collections: ['assemblies', 'invitations', 'participants', 'responses'],
+  // The host runs these on one API instance when they're due; each checks the state before changing it
+  jobs: {
+    launch: {
+      summary: 'Pick the cohort and its neighbors, and open the first round',
+      timeoutMs: 30_000,
+      maxAttempts: 5,
+    },
+    advance: {
+      summary: 'Close the current phase and open the next',
+      timeoutMs: 10_000,
+      maxAttempts: 5,
+    },
+    results: {
+      summary: "Add a question's results once its answers are in",
+      timeoutMs: 20_000,
+      maxAttempts: 5,
+    },
+  },
+  // Turned (back) on or upgraded: scheduled assemblies get the jobs they need
+  lifecycle: { onEnabled: true, onUpgraded: true },
   abilities: {
     // Org admins run assemblies; members only see them through their own participation
     Assembly: { organization: { org_admin: ['manage'] } },
@@ -119,5 +139,8 @@ export const SUPER_ASSEMBLY_MANIFEST: PluginManifest = {
     maxDocumentBytes: 256 * 1024,
     maxDocuments: 1_000_000,
     maxStorageBytes: 2 * 1024 * 1024 * 1024,
+    // Per assembly: a launch, an advance per phase (3 rounds and a report per question) and a result per question
+    jobsPerMinute: 600,
+    maxConcurrentJobs: 4,
   },
 };

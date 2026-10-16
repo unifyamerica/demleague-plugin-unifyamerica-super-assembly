@@ -18,6 +18,7 @@ import {
   AssemblyStatus,
   COLLECTIONS,
 } from './assembly.interface';
+import { AssemblyClock } from './assembly.clock';
 import { AssembliesService, createInvitationCode } from './assemblies.service';
 
 const orgA: PluginOrganization = {
@@ -62,6 +63,10 @@ describe('AssembliesService', () => {
       tenant: orgA,
     });
     service = harness.module.get(AssembliesService);
+    harness.jobs.setClock(() => now);
+    jest
+      .spyOn(harness.module.get(AssemblyClock), 'now')
+      .mockImplementation(() => now);
   });
   afterEach(() => harness.close());
 
@@ -199,6 +204,35 @@ describe('AssembliesService', () => {
     await expect(service.remove(scheduled.id)).rejects.toThrow(
       ConflictException,
     );
+  });
+
+  it('should schedule the launch for the start, move it with the start, and cancel it', async () => {
+    const assembly = await service.create(complete, now);
+    await service.createInvitations(assembly.id, { count: 1 }, now);
+    await service.schedule(assembly.id, now);
+    const launch = () =>
+      harness.jobs.jobs.filter((job) => job.name === 'launch');
+    expect(launch()).toEqual([
+      expect.objectContaining({
+        status: 'pending',
+        key: `launch:${assembly.id}`,
+        runAt: new Date('2027-08-01T13:00:02.000Z'),
+        payload: { assemblyId: assembly.id },
+        organizationId: 'org-a',
+      }),
+    ]);
+
+    await service.update(
+      assembly.id,
+      { startsAt: '2027-08-01T14:00:00.000Z' },
+      now,
+    );
+    expect(launch()).toEqual([
+      expect.objectContaining({ runAt: new Date('2027-08-01T14:00:02.000Z') }),
+    ]);
+
+    await service.unschedule(assembly.id, now);
+    expect(launch()).toEqual([expect.objectContaining({ status: 'canceled' })]);
   });
 
   describe('invitations', () => {
