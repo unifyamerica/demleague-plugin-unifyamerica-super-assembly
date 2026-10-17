@@ -8,15 +8,15 @@ moved. Org admins create and schedule assemblies, hand out single-use invitation
 It's the modular rewrite of the Dynamic Norms Super Assembly app (NestJS + MySQL with static pages). That app
 stays in the private `unifyamerica/demleague-plugin-super-assembly` repository for reference.
 
-Built on [`@unifyamerica/demleague-plugin-sdk`](https://github.com/unifyamerica/demleague-plugin-sdk) 0.4
-(luxon and the `v-safe-html` directive come from it). See the SDK's
+Built on [`@unifyamerica/demleague-plugin-sdk`](https://github.com/unifyamerica/demleague-plugin-sdk) 0.5
+(scheduled jobs, luxon and the `v-safe-html` directive come from it). See the SDK's
 [Plugin Developer Guide](https://github.com/unifyamerica/demleague-plugin-sdk/blob/main/PLUGIN_DEVELOPER_GUIDE.md)
 for the contract this module follows.
 
 ## How an assembly runs
 
 ```
-draft ──schedule──▶ scheduled ──start time──▶ running ──last round ends──▶ finished
+draft ──schedule──▶ scheduled ──launch job──▶ running ──last round ends──▶ finished
   ▲                    │                            (any time before finished) ──▶ canceled
   └──back to draft─────┘ (before the start, nobody joined)
 ```
@@ -29,35 +29,46 @@ draft ──schedule──▶ scheduled ──start time──▶ running ──
 3. **Launch.** Two seconds after the start, the cohort is picked and each member gets 4 neighbors from a random
    regular graph (a ring, then a Maslov–Sneppen shuffle, as in the original app). Members who joined late or
    didn't confirm are told why they can't take part.
-4. **Rounds.** Each question runs 3 rounds of `roundDurationSec` (90 s by default). From round 2 a participant
-   sees their own last answer and their neighbors' average. Whoever skips round 1 of the first question is
-   **stopped**.
+4. **Rounds.** Each question runs 3 rounds of at most `roundDurationSec` (90 s by default): a round ends early
+   as soon as everyone still taking part has answered. From round 2 a participant sees their own last answer and
+   their neighbors' average. Whoever skips round 1 of the first question is **stopped** (and no longer waited
+   for).
 5. **Reports.** After each question's third round, a 30 s report shows each round's average and range, with the
    participant's own answers. The last question has no report: the assembly finishes and shows it with the
    closing page.
 
-### No scheduler: the clock decides
+### Jobs move it along
 
-Modules can't run scheduled jobs (yet), and the original app advanced every assembly from a one-second cron.
-Here **where an assembly is follows from its start time and durations alone** (`src/assemblies/timeline.ts`),
-so any request can work it out. The few writes that have to happen once are made by whichever request comes
-first (`RunService.prepare`), and they're the same whoever makes them: the cohort only depends on confirmations
-made before the start, the neighbors on a generator seeded with the assembly's id, and the results on answers
-given before a round ended. That keeps concurrent requests from disagreeing without transactions.
+The original app advanced every assembly from a one-second cron. Here the host's scheduled jobs do it, on one
+API instance at a time (`src/assemblies/run.service.ts`, `assembly.jobs.ts`):
 
-Because the schedule is known in advance, the participant page asks the API again **only when a phase ends**
-(with a couple of seconds' random spread), and right after the user acts, instead of polling every 1.5 s.
+| Job | When | What it does |
+| --- | --- | --- |
+| `launch` | 2 s after the start (scheduled when the assembly is, moved with its start, canceled with it) | Picks the cohort and neighbors, opens round 1 |
+| `advance` | When the current phase ends, or right away once everyone has answered a round (the job is moved to now) | Opens the next round, report or question, or finishes |
+| `results` | 2 s after a question's last round (so answers in flight land) | Adds the question's results |
+
+Jobs run at least once, so each one checks the state first: `advance` only moves the phase it was scheduled for
+(its key is the phase's), `launch` only an assembly not launched yet (and its neighbors come from a generator
+seeded with the assembly's id), `results` only a question without results. Opening a page also schedules a
+job again if it's well overdue. Turning the module back on, or upgrading it, gives every scheduled assembly the
+jobs it needs (`onEnabled`, `onUpgraded`); 0.1.0 assemblies, which had no stored phase, get the phase their
+clock-based schedule put them in.
+
+The participant page asks the API again when the current phase ends (with a couple of seconds' random spread)
+and right after the user acts; only while waiting for the others to answer does it check every few seconds, to
+notice a round ending early.
 
 ## Data (per organization)
 
 | Collection | One per | Fields |
 | --- | --- | --- |
-| `assemblies` | assembly | title, `startsAt`, `timeZone`, durations, `questions` (`prompt` HTML, `min`, `max`; up to 9), `landingHtml` / `readyHtml` / `finishedHtml`, `status` (`draft`, `scheduled`, `canceled`), `launchedAt`, `results` (per question and round: count, total, min, max) |
+| `assemblies` | assembly | title, `startsAt`, `timeZone`, durations, `questions` (`prompt` HTML, `min`, `max`; up to 9), `landingHtml` / `readyHtml` / `finishedHtml`, `status` (`draft`, `scheduled`, `canceled`), `launchedAt`, `phase` (`key`, `kind`: round, report or finished, `question`, `round`, `startedAt`, `endsAt`), `cohortSize`, `activeCount`, `finishedAt`, `results` (per question and round: count, total, min, max) |
 | `invitations` | invitation | `assemblyId`, `code` (20 base62 characters from `crypto.getRandomValues`), `traits`, `participantId`, `usedAt` |
 | `participants` | member in an assembly | `assemblyId`, `invitationId`, `userId`, `traits`, `joinedAt`, `readyAt`, `inCohort`, `neighborIds` |
 | `responses` | answer | `assemblyId`, `participantId`, `question`, `round`, `value`, `respondedAt` |
 
-`running` and `finished` aren't stored: they're worked out from the clock.
+`running` and `finished` aren't stored: they come from `launchedAt` and `phase`.
 
 ## Endpoints
 
@@ -113,6 +124,7 @@ The registry entry this module needs in `api/namespace-registry.json`:
     "Participation": { "organization": { "member": ["read", "create", "update"] } }
   },
   "approvedUiSlots": ["main-menu"],
+  "approvedJobs": ["launch", "advance", "results"],
   "limits": {
     "requestsPerMinute": 6000,
     "requestsPerMinutePerUser": 120,
@@ -120,7 +132,9 @@ The registry entry this module needs in `api/namespace-registry.json`:
     "requestTimeoutMs": 15000,
     "maxDocumentBytes": 262144,
     "maxDocuments": 1000000,
-    "maxStorageBytes": 2147483648
+    "maxStorageBytes": 2147483648,
+    "jobsPerMinute": 600,
+    "maxConcurrentJobs": 4
   },
   "notes": "Super Assemblies (rewrite of the Dynamic Norms app)"
 }
@@ -129,8 +143,10 @@ The registry entry this module needs in `api/namespace-registry.json`:
 Fill in the owner's contact email. Why the limits are raised: an assembly of 300 members with 3 questions is about 3,300 documents (300
 invitations, 300 participants, 2,700 answers), so the default 10,000 documents would last three assemblies; an
 assembly with 9 questions of HTML is up to ~150 KB (default 64 KB); and 300 participants refreshing at a phase
-change plus answering is a burst of about 1,000 requests and 4,000 DB operations in a few seconds. No public
-endpoints, no calls to other modules, no exports, no events.
+change plus answering is a burst of about 1,000 requests and 4,000 DB operations in a few seconds. An assembly
+schedules a launch, an advance per phase (4 per question) and a result per question, so 600 jobs a minute leaves
+room for many at once; 4 concurrent jobs per instance keep one module from hogging the dispatcher. No public
+endpoints, no calls to other modules, no exports, no events, no recurring schedules.
 
 Then pin the exact version in `api/package.json` and `frontend/package.json`, add `SuperAssemblyPlugin` to
 `api/src/plugins.config.ts` and the `./ui` entry to `frontend/src/plugins.config.ts` (no stylesheet), and add
@@ -148,9 +164,8 @@ Release by pushing a `v<version>` tag (the org's release workflow publishes it);
 
 ## Known limits
 
-- **No early end of a round.** The original app ended a round as soon as everyone had answered. Without
-  scheduled jobs or atomic updates that can't be done safely, so rounds always run their full length. Module
-  scheduling would bring it back.
+- **Timing:** a phase changes within a second or two of when it's due (the host's job precision), and a
+  participant who answered notices an early end within a few seconds (no push channel yet).
 - **Duplicate answers.** Two answers sent at the same moment can both be stored (there are no unique indexes);
   only the first counts, everywhere.
 - **Edits stop once someone joins** (as in the original app): participants agreed to what they saw.

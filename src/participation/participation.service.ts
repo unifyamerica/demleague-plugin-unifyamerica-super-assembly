@@ -16,8 +16,15 @@ import {
   type Participant,
 } from '../assemblies/assembly.interface';
 import { AssemblyStore } from '../assemblies/assembly.store';
+import { AssemblyClock } from '../assemblies/assembly.clock';
 import { firstAnswers, RunService } from '../assemblies/run.service';
-import { assemblyState, Phase, phaseAt } from '../assemblies/timeline';
+import {
+  assemblyState,
+  currentPhase,
+  Phase,
+  roundKey,
+  type PhaseAt,
+} from '../assemblies/timeline';
 
 /** Where a participant is, which decides what their page shows. */
 export const SessionState = {
@@ -65,10 +72,11 @@ export class ParticipationService {
   constructor(
     private readonly store: AssemblyStore,
     private readonly run: RunService,
+    private readonly clock: AssemblyClock,
   ) {}
 
   /** The current user's assemblies, newest first. */
-  async list(actor: PluginActor, now = new Date()) {
+  async list(actor: PluginActor, now = this.clock.now()) {
     const { items } = await this.store.participants.find({
       filter: { userId: actor.id },
       sort: { joinedAt: -1 },
@@ -95,7 +103,7 @@ export class ParticipationService {
   }
 
   /** What an invitation link shows before joining. Unknown codes, and others' used ones, are not found. */
-  async preview(actor: PluginActor, code: string, now = new Date()) {
+  async preview(actor: PluginActor, code: string, now = this.clock.now()) {
     const { invitation, assembly, existing } = await this.resolveInvitation(
       actor,
       code,
@@ -112,7 +120,7 @@ export class ParticipationService {
   async join(
     actor: PluginActor,
     code: string,
-    now = new Date(),
+    now = this.clock.now(),
   ): Promise<{ id: string }> {
     const { invitation, assembly, existing } = await this.resolveInvitation(
       actor,
@@ -143,21 +151,16 @@ export class ParticipationService {
     return { id: participant.id };
   }
 
-  async session(actor: PluginActor, id: string, now = new Date()) {
+  async session(actor: PluginActor, id: string, now = this.clock.now()) {
     const found = await this.findOwn(actor, id);
-    const assembly = await this.prepared(found.assemblyId, now);
-    // The launch may have just put them in (or left them out of) the cohort
-    const participant =
-      assembly.launchedAt && found.inCohort === null
-        ? await this.findOwn(actor, id)
-        : found;
-    return this.buildSession(assembly, participant, now);
+    const assembly = await this.loadAssembly(found.assemblyId);
+    return this.buildSession(assembly, found, now);
   }
 
   /** "I'm here": keeps a place in the cohort, until the start. */
-  async ready(actor: PluginActor, id: string, now = new Date()) {
+  async ready(actor: PluginActor, id: string, now = this.clock.now()) {
     const participant = await this.findOwn(actor, id);
-    const assembly = await this.prepared(participant.assemblyId, now);
+    const assembly = await this.loadAssembly(participant.assemblyId);
     if (
       assembly.status !== AssemblyStatus.SCHEDULED ||
       !assembly.startsAt ||
@@ -175,10 +178,10 @@ export class ParticipationService {
     actor: PluginActor,
     id: string,
     value: number,
-    now = new Date(),
+    now = this.clock.now(),
   ) {
     const participant = await this.findOwn(actor, id);
-    const assembly = await this.prepared(participant.assemblyId, now);
+    const assembly = await this.loadAssembly(participant.assemblyId);
     const session = await this.buildSession(assembly, participant, now);
     if (session.state !== SessionState.ANSWERING || !session.question) {
       throw new ConflictException(
@@ -201,6 +204,8 @@ export class ParticipationService {
       value,
       respondedAt: now,
     });
+    // The last answer the round waited for ends it now, instead of at its time
+    await this.run.endRoundIfAllAnswered(assembly);
     return this.buildSession(assembly, participant, now);
   }
 
@@ -216,13 +221,13 @@ export class ParticipationService {
     return participant;
   }
 
-  private async prepared(
+  private async loadAssembly(
     assemblyId: string,
-    now: Date,
   ): Promise<PluginRecord<Assembly>> {
     const assembly = await this.store.assemblies.findById(assemblyId);
     if (!assembly) throw new NotFoundException('Assembly not found');
-    return this.run.prepare(assembly, now);
+    await this.run.healOverdue(assembly);
+    return assembly;
   }
 
   private async resolveInvitation(actor: PluginActor, code: string) {
@@ -256,7 +261,7 @@ export class ParticipationService {
     participant: PluginRecord<Participant>,
     now: Date,
   ) {
-    const phase = phaseAt(assembly, now);
+    const phase = currentPhase(assembly);
     const responses = firstAnswers(
       await this.store.all(this.store.responses, {
         participantId: participant.id,
@@ -349,14 +354,14 @@ export class ParticipationService {
   private stateOf(
     assembly: PluginRecord<Assembly>,
     participant: PluginRecord<Participant>,
-    phase: ReturnType<typeof phaseAt>,
+    phase: PhaseAt,
     answerTo: (question: number, round: number) => number | null,
     now: Date,
   ): SessionState {
     if (assembly.status !== AssemblyStatus.SCHEDULED)
       return SessionState.CANCELED;
     const startsAt = assembly.startsAt!;
-    if (phase.phase === Phase.NOT_STARTED) {
+    if (phase.phase === Phase.NOT_STARTED && now < startsAt) {
       const fresh =
         participant.readyAt !== null &&
         now.getTime() - participant.readyAt.getTime() <=
@@ -368,11 +373,7 @@ export class ParticipationService {
     if (!participant.inCohort) return SessionState.MISSED;
     if (phase.phase === Phase.FINISHED) return SessionState.FINISHED;
 
-    const pastFirstRound = !(
-      phase.phase === Phase.ROUND &&
-      phase.question === 0 &&
-      phase.round === 1
-    );
+    const pastFirstRound = assembly.phase?.key !== roundKey(0, 1);
     if (pastFirstRound && answerTo(0, 1) === null) return SessionState.STOPPED;
     if (phase.phase === Phase.REPORT) return SessionState.REPORT;
     return answerTo(phase.question, phase.round) === null

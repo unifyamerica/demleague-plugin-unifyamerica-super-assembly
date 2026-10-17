@@ -138,7 +138,7 @@ export default {
       answerLabel: 'Your answer ({min} to {max})',
       submit: 'Submit',
       answered:
-        'Your answer ({value}) is in. The next round starts when this one ends.',
+        'Your answer ({value}) is in. The next round starts once everyone has answered, or when the time is up.',
       results: 'Question {question}: how the group answered',
       computing: 'Counting the answers…',
       nextQuestionIn: 'Next question in',
@@ -169,7 +169,7 @@ export default {
       startsAtHelp:
         "In the assembly's time zone. Members need to confirm they're here in the minute before.",
       roundDurationHelp:
-        'Each question has 3 rounds of this length, and a 30-second report between questions.',
+        'Each question has 3 rounds of at most this length (a round ends early once everyone has answered), and a 30-second report between questions.',
       questions: 'Questions',
       question: 'Question {n}',
       removeQuestion: 'Remove question {n}',
@@ -186,7 +186,7 @@ export default {
       title: 'Assembly',
       overview: 'Overview',
       invitations: 'Invitations',
-      ends: 'Ends',
+      ends: 'Ends (at the latest)',
       schedule: 'Schedule',
       unschedule: 'Back to draft',
       cancel: 'Cancel assembly',

@@ -29,8 +29,15 @@ import type {
   UpdateAssemblyDto,
 } from './dto/assembly.dto';
 import type { CreateInvitationsDto } from './dto/invitation.dto';
+import { AssemblyClock } from './assembly.clock';
 import { firstAnswers, RunService } from './run.service';
-import { assemblyState, endsAt, Phase, phaseAt } from './timeline';
+import {
+  assemblyState,
+  currentPhase,
+  endsAt,
+  Phase,
+  roundKey,
+} from './timeline';
 
 const CODE_ALPHABET =
   'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -115,7 +122,8 @@ export const toAssemblyView = (
 ) => ({
   ...assembly,
   state: assemblyState(assembly, now),
-  endsAt: endsAt(assembly),
+  // When it ended, or the latest it can end (a round ends early once everyone answered)
+  endsAt: assembly.finishedAt ?? endsAt(assembly),
 });
 export type AssemblyView = ReturnType<typeof toAssemblyView>;
 
@@ -124,11 +132,12 @@ export class AssembliesService {
   constructor(
     private readonly store: AssemblyStore,
     private readonly run: RunService,
+    private readonly clock: AssemblyClock,
   ) {}
 
   async list(
     query: ListAssembliesQueryDto,
-    now = new Date(),
+    now = this.clock.now(),
   ): Promise<PluginPage<AssemblyView>> {
     const limit = query.limit ?? 25;
     const page = await this.store.assemblies.find({
@@ -146,16 +155,15 @@ export class AssembliesService {
     return assembly;
   }
 
-  async get(id: string, now = new Date()): Promise<AssemblyView> {
-    return toAssemblyView(
-      await this.run.prepare(await this.find(id), now),
-      now,
-    );
+  async get(id: string, now = this.clock.now()): Promise<AssemblyView> {
+    const assembly = await this.find(id);
+    await this.run.healOverdue(assembly);
+    return toAssemblyView(assembly, now);
   }
 
   async create(
     dto: CreateAssemblyDto,
-    now = new Date(),
+    now = this.clock.now(),
   ): Promise<AssemblyView> {
     const assembly = await this.store.assemblies.insert({
       title: dto.title.trim(),
@@ -176,6 +184,10 @@ export class AssembliesService {
       finishedHtml: dto.finishedHtml ?? '',
       status: AssemblyStatus.DRAFT,
       launchedAt: null,
+      phase: null,
+      cohortSize: 0,
+      activeCount: 0,
+      finishedAt: null,
       results: [],
     });
     return toAssemblyView(assembly, now);
@@ -185,7 +197,7 @@ export class AssembliesService {
   async update(
     id: string,
     dto: UpdateAssemblyDto,
-    now = new Date(),
+    now = this.clock.now(),
   ): Promise<AssemblyView> {
     const assembly = await this.find(id);
     await this.assertEditable(assembly, now);
@@ -220,6 +232,13 @@ export class AssembliesService {
 
     const updated = await this.store.assemblies.update(id, changes);
     if (!updated) throw new NotFoundException('Assembly not found');
+    // A new start time moves the launch
+    if (
+      updated.status === AssemblyStatus.SCHEDULED &&
+      changes.startsAt !== undefined
+    ) {
+      await this.run.scheduleLaunch(updated);
+    }
     return toAssemblyView(updated, now);
   }
 
@@ -243,7 +262,7 @@ export class AssembliesService {
     await this.store.assemblies.remove(id);
   }
 
-  async schedule(id: string, now = new Date()): Promise<AssemblyView> {
+  async schedule(id: string, now = this.clock.now()): Promise<AssemblyView> {
     const assembly = await this.find(id);
     if (assembly.status !== AssemblyStatus.DRAFT) {
       throw new ConflictException('Only drafts can be scheduled.');
@@ -254,10 +273,12 @@ export class AssembliesService {
       now,
     );
     if (problems.length) throw new BadRequestException(problems.join(' '));
-    return this.setStatus(id, AssemblyStatus.SCHEDULED, now);
+    const view = await this.setStatus(id, AssemblyStatus.SCHEDULED, now);
+    await this.run.scheduleLaunch(view);
+    return view;
   }
 
-  async unschedule(id: string, now = new Date()): Promise<AssemblyView> {
+  async unschedule(id: string, now = this.clock.now()): Promise<AssemblyView> {
     const assembly = await this.find(id);
     if (assemblyState(assembly, now) !== AssemblyState.SCHEDULED) {
       throw new ConflictException(
@@ -269,14 +290,17 @@ export class AssembliesService {
         'Members have joined this assembly: cancel it instead.',
       );
     }
+    await this.run.cancelLaunch(id);
     return this.setStatus(id, AssemblyStatus.DRAFT, now);
   }
 
-  async cancel(id: string, now = new Date()): Promise<AssemblyView> {
+  async cancel(id: string, now = this.clock.now()): Promise<AssemblyView> {
     const state = assemblyState(await this.find(id), now);
     if (state === AssemblyState.CANCELED || state === AssemblyState.FINISHED) {
       throw new ConflictException(`This assembly is already ${state}.`);
     }
+    // Its other jobs find it canceled and do nothing
+    await this.run.cancelLaunch(id);
     return this.setStatus(id, AssemblyStatus.CANCELED, now);
   }
 
@@ -298,7 +322,7 @@ export class AssembliesService {
   async createInvitations(
     id: string,
     dto: CreateInvitationsDto,
-    now = new Date(),
+    now = this.clock.now(),
   ): Promise<PluginRecord<Invitation>[]> {
     const state = assemblyState(await this.find(id), now);
     if (state === AssemblyState.CANCELED || state === AssemblyState.FINISHED) {
@@ -342,20 +366,21 @@ export class AssembliesService {
 
   // Progress and data
 
-  async progress(id: string, now = new Date()) {
-    const assembly = await this.run.prepare(await this.find(id), now);
-    const phase = phaseAt(assembly, now);
+  async progress(id: string, now = this.clock.now()) {
+    const assembly = await this.find(id);
+    await this.run.healOverdue(assembly);
+    const phase = currentPhase(assembly);
     const participants = await this.store.all(this.store.participants, {
       assemblyId: id,
     });
-    const cohort = participants.filter((p) => p.inCohort);
+    const cohort = assembly.cohortSize;
     // Before the start: who confirmed they're here within the ready window; after: who made the cohort
     const readySince = new Date(now.getTime() - assembly.readyWindowSec * 1000);
     const ready =
       phase.phase === Phase.NOT_STARTED
         ? participants.filter((p) => p.readyAt && p.readyAt >= readySince)
             .length
-        : cohort.length;
+        : cohort;
 
     const answered = async (question: number, round: number) =>
       new Set(
@@ -369,12 +394,7 @@ export class AssembliesService {
       ).size;
     // As in the original app, whoever doesn't answer the first round is stopped once it's over
     const firstRoundOver =
-      assembly.launchedAt !== null &&
-      !(
-        phase.phase === Phase.ROUND &&
-        phase.question === 0 &&
-        phase.round === 1
-      );
+      assembly.phase !== null && assembly.phase.key !== roundKey(0, 1);
 
     return {
       state: assemblyState(assembly, now),
@@ -384,9 +404,9 @@ export class AssembliesService {
         invitations: await this.store.invitations.count({ assemblyId: id }),
         joined: participants.length,
         ready,
-        cohort: cohort.length,
+        cohort,
         stopped: firstRoundOver
-          ? Math.max(cohort.length - (await answered(0, 1)), 0)
+          ? Math.max(assembly.cohortSize - assembly.activeCount, 0)
           : 0,
         answeredThisRound:
           phase.phase === Phase.ROUND
