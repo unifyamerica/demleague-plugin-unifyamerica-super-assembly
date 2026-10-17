@@ -1,13 +1,9 @@
-import {
-  type PluginManifest,
-  SDK_API_VERSION,
-} from '@unifyamerica/demleague-plugin-sdk/manifest';
+import { type PluginManifest } from '@unifyamerica/demleague-plugin-sdk/manifest';
 
 // ℹ️ Imported by the UI too, so it only uses the NestJS-free `/manifest` entry
 export const SUPER_ASSEMBLY_MANIFEST: PluginManifest = {
-  sdkApiVersion: SDK_API_VERSION,
   namespace: 'unifyamerica.super-assembly',
-  version: '0.2.0',
+  version: '0.2.1',
   displayName: 'Super Assembly',
   description:
     "Timed assemblies where members estimate answers to questions over three rounds, seeing their network neighbors' previous answers between rounds",
